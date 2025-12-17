@@ -7,14 +7,22 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
 const app = express();
-const PORT = 5000;
+const PORT = process.env.PORT || 5000; // Updated to use Render's port if available
 
-// Middleware
-app.use(cors());
+// --- CORS FIX START ---
+// We allow ANY website (origin: '*') to access this backend.
+// This is critical for Vercel to talk to Render.
+app.use(cors({
+  origin: '*', 
+  methods: ['GET', 'POST'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+}));
+// --- CORS FIX END ---
+
 app.use(express.json());
 
 // --- MONGODB CONNECTION ---
-// REPLACE THIS STRING WITH YOUR OWN ATLAS CONNECTION STRING
 const MONGO_URI = process.env.MONGO_URI || 'mongodb+srv://admin:admin@cluster0.rv9hb.mongodb.net/Stock';
 
 mongoose.connect(MONGO_URI)
@@ -26,7 +34,7 @@ const userSchema = new mongoose.Schema({
   name: String,
   email: { type: String, unique: true, required: true },
   password: { type: String, required: true },
-  balance: { type: Number, default: 10000 }, // Starting virtual cash
+  balance: { type: Number, default: 10000 },
   portfolio: [{
     ticker: String,
     units: Number,
@@ -73,7 +81,7 @@ app.post('/login', async (req, res) => {
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// 3. Get User Data (Refresh Portfolio)
+// 3. Get User Data
 app.get('/user/:email', async (req, res) => {
   try {
     const user = await User.findOne({ email: req.params.email });
@@ -90,13 +98,14 @@ app.post('/buy', async (req, res) => {
     
     const user = await User.findOne({ email });
     
-    // Check Funds (Optional feature)
-    // if (user.balance < cost) return res.status(400).json({ error: "Insufficient funds" });
+    // Simple check so balance doesn't go negative
+    if (user.balance < cost) {
+         return res.status(400).json({ error: "Insufficient funds" });
+    }
 
     const stockIndex = user.portfolio.findIndex(p => p.ticker === ticker);
     
     if (stockIndex > -1) {
-      // Calculate new Weighted Average Price
       let oldUnits = user.portfolio[stockIndex].units;
       let oldCost = user.portfolio[stockIndex].avgCost;
       let newAvg = ((oldUnits * oldCost) + cost) / (oldUnits + units);
@@ -129,7 +138,6 @@ app.post('/sell', async (req, res) => {
 
     user.portfolio[stockIndex].units -= parseInt(units);
     
-    // Remove if 0 units
     if (user.portfolio[stockIndex].units === 0) {
       user.portfolio.splice(stockIndex, 1);
     }
@@ -148,9 +156,9 @@ const wss = new WebSocket.Server({ server });
 // Broadcast prices every second
 setInterval(() => {
   STOCKS.forEach(stock => {
-    const change = (Math.random() * 4) - 2; // Move up or down by max $2
+    const change = (Math.random() * 4) - 2; 
     let newPrice = parseFloat(currentPrices[stock]) + change;
-    if (newPrice < 10) newPrice = 10; // Floor price
+    if (newPrice < 10) newPrice = 10; 
     currentPrices[stock] = newPrice.toFixed(2);
   });
 
